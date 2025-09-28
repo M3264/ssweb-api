@@ -4,14 +4,13 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "start": "npm run build && node index.js",
-    "build": "npx playwright install chromium && npx playwright install-deps"
+    "start": "node index.js",
+    "postinstall": "npx playwright install chromium",
+    "build": "echo 'Build step skipped (Playwright installed in postinstall)'"
   },
   "author": "GiftedTech",
   "dependencies": {
     "express": "*",
-    "fs": "*",
-    "path": "*",
     "playwright-chromium": "*"
   }
 }
