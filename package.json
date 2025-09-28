@@ -1,0 +1,17 @@
+{
+  "name": "ssweb",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "npm run build && node index.js",
+    "build": "npx playwright install chromium && npx playwright install-deps"
+  },
+  "author": "GiftedTech",
+  "dependencies": {
+    "express": "*",
+    "fs": "*",
+    "path": "*",
+    "playwright-chromium": "*"
+  }
+}
