@@ -1,32 +1,39 @@
-const express = require('express');
-const { chromium } = require('playwright-chromium');
-const fs = require('fs');
-const path = require('path');
+const express = require('express')
+const { chromium } = require('playwright-chromium')
+const fs = require('fs')
+const path = require('path')
+const os = require('os')
 
-const app = express();
-const PORT = process.env.PORT || 2123;
+const app = express()
+const PORT = process.env.PORT || 2123
 
-app.use(express.json());
-app.set('json spaces', 2);
+app.use(express.json())
+app.set('json spaces', 2)
 
-const tempDir = path.join(__dirname, 'temp');
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir, { recursive: true });
+const getTempDir = () => {
+  if (process.env.VERCEL) {
+    return '/tmp'
+  }
+  const tempDir = path.join(__dirname, 'temp')
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true })
+  }
+  return tempDir
 }
 
 const validateInput = (url, device) => {
-  if (!url) return 'URL parameter is required';
+  if (!url) return 'URL parameter is required'
   try {
-    new URL(url);
+    new URL(url)
   } catch (err) {
-    return 'Invalid URL format';
+    return 'Invalid URL format'
   }
-  const validDevices = ['phone', 'tablet', 'laptop', 'desktop', 'full'];
+  const validDevices = ['phone', 'tablet', 'laptop', 'desktop', 'full']
   if (device && !validDevices.includes(device)) {
-    return `Invalid device. Must be one of: ${validDevices.join(', ')}`;
+    return `Invalid device. Must be one of: ${validDevices.join(', ')}`
   }
-  return null;
-};
+  return null
+}
 
 const deviceConfigs = {
   phone: { width: 375, height: 667 },
@@ -34,45 +41,68 @@ const deviceConfigs = {
   laptop: { width: 1366, height: 768 },
   desktop: { width: 1920, height: 1080 },
   full: null
-};
+}
 
 function cleanupTempFiles() {
-  const now = Date.now();
-  const thirtyMinutes = 30 * 60 * 1000;
+  const now = Date.now()
+  const thirtyMinutes = 30 * 60 * 1000
   try {
-    const files = fs.readdirSync(tempDir);
+    const tempDir = getTempDir()
+    const files = fs.readdirSync(tempDir)
     files.forEach(file => {
-      const filePath = path.join(tempDir, file);
-      const stats = fs.statSync(filePath);
-      if (now - stats.mtime.getTime() > thirtyMinutes) {
-        fs.unlinkSync(filePath);
-      }
-    });
+      const filePath = path.join(tempDir, file)
+      try {
+        const stats = fs.statSync(filePath)
+        if (now - stats.mtime.getTime() > thirtyMinutes) {
+          fs.unlinkSync(filePath)
+        }
+      } catch (error) {}
+    })
   } catch (error) {}
 }
 
-setInterval(cleanupTempFiles, 30 * 60 * 1000);
+if (!process.env.VERCEL) {
+  setInterval(cleanupTempFiles, 30 * 60 * 1000)
+}
 
 app.get('/api/screenshot', async (req, res) => {
-  const { url, device = 'desktop' } = req.query;
-  const validationError = validateInput(url, device);
-  if (validationError) return res.status(400).json({ error: validationError });
+  const { url, device = 'desktop' } = req.query
+  const validationError = validateInput(url, device)
+  if (validationError) return res.status(400).json({ error: validationError })
 
-  let browser;
+  let browser
   try {
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    const page = await browser.newPage();
-    if (device !== 'full') await page.setViewportSize(deviceConfigs[device]);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-    await page.waitForTimeout(2000);
-    const screenshotOptions = { type: 'png', fullPage: device === 'full', animations: 'disabled' };
-    const screenshot = await page.screenshot(screenshotOptions);
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Content-Disposition', `inline; filename="gifted_ssweb-${device}-${Date.now()}.png"`);
-    res.send(screenshot);
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--disable-extensions',
+        '--disable-default-apps'
+      ]
+    })
+    const page = await browser.newPage()
+    if (device !== 'full') await page.setViewportSize(deviceConfigs[device])
+    
+    await page.goto(url, { 
+      waitUntil: 'networkidle', 
+      timeout: 30000 
+    })
+    await page.waitForTimeout(2000)
+    
+    const screenshotOptions = { 
+      type: 'png', 
+      fullPage: device === 'full', 
+      animations: 'disabled' 
+    }
+    const screenshot = await page.screenshot(screenshotOptions)
+    
+    res.setHeader('Content-Type', 'image/png')
+    res.setHeader('Content-Disposition', `inline; filename="gifted_ssweb-${device}-${Date.now()}.png"`)
+    res.send(screenshot)
   } catch (err) {
     res.status(500).json({ 
       status: 500,
@@ -80,73 +110,90 @@ app.get('/api/screenshot', async (req, res) => {
       creator: 'GiftedTech',
       error: 'Error creating screenshot', 
       message: err.message 
-    });
+    })
   } finally {
-    if (browser) await browser.close();
+    if (browser) await browser.close()
   }
-});
+})
 
 app.get('/api/screenrecord', async (req, res) => {
-  const { url, device = 'desktop', duration = '10' } = req.query;
-  const validationError = validateInput(url, device);
-  if (validationError) return res.status(400).json({ error: validationError });
+  const { url, device = 'desktop', duration = '10' } = req.query
+  const validationError = validateInput(url, device)
+  if (validationError) return res.status(400).json({ error: validationError })
 
-  let browser;
-  let context;
-  const recordingId = Date.now().toString();
-  
+  let browser
+  let context
+  const recordingId = Date.now().toString()
+  const tempDir = getTempDir()
+
   try {
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--disable-extensions',
+        '--disable-default-apps'
+      ]
+    })
 
     context = await browser.newContext({
       recordVideo: {
         dir: tempDir,
         size: device !== 'full' ? deviceConfigs[device] : { width: 1920, height: 1080 }
       }
-    });
+    })
 
-    const page = await context.newPage();
-    if (device !== 'full') await page.setViewportSize(deviceConfigs[device]);
-    
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-    await page.waitForTimeout(3000);
+    const page = await context.newPage()
+    if (device !== 'full') await page.setViewportSize(deviceConfigs[device])
 
-    const recordDuration = Math.min(parseInt(duration) || 10, 30);
-    await page.waitForTimeout(recordDuration * 1000);
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+    await page.waitForTimeout(3000)
 
-    await context.close();
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    const recordDuration = Math.min(parseInt(duration) || 10, 30)
+    await page.waitForTimeout(recordDuration * 1000)
 
-    const videoFiles = fs.readdirSync(tempDir).filter(file => file.endsWith('.webm'));
-    const videoFile = videoFiles.find(file => fs.statSync(path.join(tempDir, file)).mtime.getTime() > Date.now() - 10000);
-    
-    if (!videoFile) throw new Error('Video file not found');
-    
-    const videoPath = path.join(tempDir, videoFile);
-    const videoBuffer = fs.readFileSync(videoPath);
-    
-    res.setHeader('Content-Type', 'video/webm');
-    res.setHeader('Content-Disposition', `inline; filename="gifted_ssweb_rec-${device}-${recordingId}.webm"`);
-    res.send(videoBuffer);
-    
-    fs.unlinkSync(videoPath);
-    
+    await context.close()
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    const videoFiles = fs.readdirSync(tempDir).filter(file => file.endsWith('.webm'))
+    const videoFile = videoFiles.find(file => {
+      try {
+        return fs.statSync(path.join(tempDir, file)).mtime.getTime() > Date.now() - 15000
+      } catch {
+        return false
+      }
+    })
+
+    if (!videoFile) throw new Error('Video file not found')
+
+    const videoPath = path.join(tempDir, videoFile)
+    const videoBuffer = fs.readFileSync(videoPath)
+
+    res.setHeader('Content-Type', 'video/webm')
+    res.setHeader('Content-Disposition', `inline; filename="gifted_ssweb_rec-${device}-${recordingId}.webm"`)
+    res.send(videoBuffer)
+
+    try {
+      fs.unlinkSync(videoPath)
+    } catch (error) {}
+
   } catch (err) {
-    if (context) await context.close();
+    if (context) await context.close()
     res.status(500).json({ 
       status: 500,
       success: 'false',
       creator: 'GiftedTech',
       error: 'Error creating screen recording', 
       message: err.message 
-    });
+    })
   } finally {
-    if (browser) await browser.close();
+    if (browser) await browser.close()
   }
-});
+})
 
 app.get('/health', (req, res) => {
   res.json({ 
@@ -155,8 +202,8 @@ app.get('/health', (req, res) => {
     info: 'online', 
     creator: 'GiftedTech',
     timestamp: new Date().toISOString() 
-  });
-});
+  })
+})
 
 app.get('/', (req, res) => {
   res.send(`
@@ -198,9 +245,13 @@ app.get('/', (req, res) => {
     <a class="button" href="/health">Health Check</a>
 </body>
 </html>
-  `);
-});
+  `)
+})
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`)
+  })
+}
+
+module.exports = app
